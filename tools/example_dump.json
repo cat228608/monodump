@@ -1,0 +1,415 @@
+{
+ "schema": 2,
+ "generator": "monodump",
+ "note": "test",
+ "filters": {
+  "assembly": "",
+  "name": "",
+  "compiled": false
+ },
+ "skipped_classes": 3,
+ "assemblies": [
+  {
+   "name": "Assembly-CSharp",
+   "file": "C:\\g\\Assembly-CSharp.dll",
+   "runtime": "v4.0.30319",
+   "classes": [
+    {
+     "namespace": "",
+     "name": "RecipeManager",
+     "full_name": "RecipeManager",
+     "token": "0x02000011",
+     "parent": "UnityEngine.MonoBehaviour",
+     "interfaces": [],
+     "nested": [],
+     "instance_size": 96,
+     "is_enum": false,
+     "is_valuetype": false,
+     "is_interface": false,
+     "is_abstract": false,
+     "is_public": true,
+     "fields": [
+      {
+       "name": "unlockedCount",
+       "type": "System.Int32",
+       "offset": 24,
+       "offset_hex": "0x18",
+       "static": false,
+       "const": false,
+       "readonly": false,
+       "public": true,
+       "static_addr": "0x0",
+       "value": ""
+      },
+      {
+       "name": "allRecipes",
+       "type": "System.Collections.Generic.List`1<Recipe>",
+       "offset": 32,
+       "offset_hex": "0x20",
+       "static": false,
+       "const": false,
+       "readonly": false,
+       "public": true,
+       "static_addr": "0x0",
+       "value": ""
+      }
+     ],
+     "methods": [
+      {
+       "name": "UnlockAll",
+       "token": "0x06000101",
+       "return": "System.Void",
+       "params": [],
+       "param_count": 0,
+       "static": true,
+       "virtual": false,
+       "abstract": false,
+       "public": true,
+       "special": false,
+       "signature": "",
+       "full_name": "",
+       "jit_addr": "0x0"
+      },
+      {
+       "name": "UnlockRecipe",
+       "token": "0x06000102",
+       "return": "System.Boolean",
+       "params": [
+        {
+         "name": "id",
+         "type": "System.Int32"
+        }
+       ],
+       "param_count": 1,
+       "static": true,
+       "virtual": false,
+       "abstract": false,
+       "public": true,
+       "special": false,
+       "signature": "",
+       "full_name": "",
+       "jit_addr": "0x0"
+      },
+      {
+       "name": "IsUnlocked",
+       "token": "0x06000103",
+       "return": "System.Boolean",
+       "params": [
+        {
+         "name": "r",
+         "type": "Recipe"
+        }
+       ],
+       "param_count": 1,
+       "static": false,
+       "virtual": false,
+       "abstract": false,
+       "public": true,
+       "special": false,
+       "signature": "",
+       "full_name": "",
+       "jit_addr": "0x0"
+      }
+     ],
+     "properties": []
+    },
+    {
+     "namespace": "",
+     "name": "GalleryController",
+     "full_name": "GalleryController",
+     "token": "0x02000012",
+     "parent": "UnityEngine.MonoBehaviour",
+     "interfaces": [],
+     "nested": [],
+     "instance_size": 96,
+     "is_enum": false,
+     "is_valuetype": false,
+     "is_interface": false,
+     "is_abstract": false,
+     "is_public": true,
+     "fields": [
+      {
+       "name": "Instance",
+       "type": "GalleryController",
+       "offset": 0,
+       "offset_hex": "0x0",
+       "static": true,
+       "const": false,
+       "readonly": false,
+       "public": true,
+       "static_addr": "0x0",
+       "value": ""
+      },
+      {
+       "name": "unlockedScenes",
+       "type": "System.Int32",
+       "offset": 28,
+       "offset_hex": "0x1c",
+       "static": false,
+       "const": false,
+       "readonly": false,
+       "public": true,
+       "static_addr": "0x0",
+       "value": ""
+      }
+     ],
+     "methods": [
+      {
+       "name": "UnlockGallery",
+       "token": "0x06000201",
+       "return": "System.Void",
+       "params": [
+        {
+         "name": "sceneId",
+         "type": "System.Int32"
+        }
+       ],
+       "param_count": 1,
+       "static": false,
+       "virtual": false,
+       "abstract": false,
+       "public": true,
+       "special": false,
+       "signature": "",
+       "full_name": "",
+       "jit_addr": "0x0"
+      },
+      {
+       "name": "UnlockEverything",
+       "token": "0x06000202",
+       "return": "System.Void",
+       "params": [],
+       "param_count": 0,
+       "static": true,
+       "virtual": false,
+       "abstract": false,
+       "public": true,
+       "special": false,
+       "signature": "",
+       "full_name": "",
+       "jit_addr": "0x0"
+      }
+     ],
+     "properties": []
+    },
+    {
+     "namespace": "Game.Economy",
+     "name": "Inventory",
+     "full_name": "Game.Economy.Inventory",
+     "token": "0x02000013",
+     "parent": "UnityEngine.MonoBehaviour",
+     "interfaces": [],
+     "nested": [],
+     "instance_size": 96,
+     "is_enum": false,
+     "is_valuetype": false,
+     "is_interface": false,
+     "is_abstract": false,
+     "is_public": true,
+     "fields": [
+      {
+       "name": "money",
+       "type": "System.Int32",
+       "offset": 36,
+       "offset_hex": "0x24",
+       "static": false,
+       "const": false,
+       "readonly": false,
+       "public": true,
+       "static_addr": "0x0",
+       "value": ""
+      },
+      {
+       "name": "MAX_GOLD",
+       "type": "System.Int32",
+       "offset": 0,
+       "offset_hex": "0x0",
+       "static": false,
+       "const": true,
+       "readonly": false,
+       "public": true,
+       "static_addr": "0x0",
+       "value": ""
+      },
+      {
+       "name": "totalEarned",
+       "type": "System.Int64",
+       "offset": 16,
+       "offset_hex": "0x10",
+       "static": true,
+       "const": false,
+       "readonly": false,
+       "public": true,
+       "static_addr": "0x0",
+       "value": "4200"
+      }
+     ],
+     "methods": [
+      {
+       "name": "AddResource",
+       "token": "0x06000301",
+       "return": "System.Void",
+       "params": [
+        {
+         "name": "kind",
+         "type": "System.String"
+        },
+        {
+         "name": "amount",
+         "type": "System.Int32"
+        }
+       ],
+       "param_count": 2,
+       "static": true,
+       "virtual": false,
+       "abstract": false,
+       "public": true,
+       "special": false,
+       "signature": "",
+       "full_name": "",
+       "jit_addr": "0x0"
+      },
+      {
+       "name": "get_Money",
+       "token": "0x06000302",
+       "return": "System.Int32",
+       "params": [],
+       "param_count": 0,
+       "static": true,
+       "virtual": false,
+       "abstract": false,
+       "public": true,
+       "special": true,
+       "signature": "",
+       "full_name": "",
+       "jit_addr": "0x0"
+      },
+      {
+       "name": "Serialize",
+       "token": "0x06000303",
+       "return": "System.Void",
+       "params": [
+        {
+         "name": "w",
+         "type": "System.IO.BinaryWriter"
+        }
+       ],
+       "param_count": 1,
+       "static": true,
+       "virtual": false,
+       "abstract": false,
+       "public": true,
+       "special": false,
+       "signature": "",
+       "full_name": "",
+       "jit_addr": "0x0"
+      }
+     ],
+     "properties": [
+      {
+       "name": "Money",
+       "type": "System.Int32",
+       "get": true,
+       "set": true,
+       "get_token": "0x06000302",
+       "set_token": "0x06000304"
+      }
+     ]
+    },
+    {
+     "namespace": "",
+     "name": "AudioMixerHelper",
+     "full_name": "AudioMixerHelper",
+     "token": "0x02000014",
+     "parent": "UnityEngine.MonoBehaviour",
+     "interfaces": [],
+     "nested": [],
+     "instance_size": 96,
+     "is_enum": false,
+     "is_valuetype": false,
+     "is_interface": false,
+     "is_abstract": false,
+     "is_public": true,
+     "fields": [
+      {
+       "name": "volume",
+       "type": "System.Single",
+       "offset": 24,
+       "offset_hex": "0x18",
+       "static": false,
+       "const": false,
+       "readonly": false,
+       "public": true,
+       "static_addr": "0x0",
+       "value": ""
+      }
+     ],
+     "methods": [
+      {
+       "name": "Apply",
+       "token": "0x06000401",
+       "return": "System.Void",
+       "params": [],
+       "param_count": 0,
+       "static": true,
+       "virtual": false,
+       "abstract": false,
+       "public": true,
+       "special": false,
+       "signature": "",
+       "full_name": "",
+       "jit_addr": "0x0"
+      }
+     ],
+     "properties": []
+    }
+   ]
+  },
+  {
+   "name": "UnityEngine.CoreModule",
+   "file": "",
+   "runtime": "v4.0.30319",
+   "classes": [
+    {
+     "namespace": "UnityEngine",
+     "name": "Time",
+     "full_name": "UnityEngine.Time",
+     "token": "0x02000099",
+     "parent": "UnityEngine.MonoBehaviour",
+     "interfaces": [],
+     "nested": [],
+     "instance_size": 96,
+     "is_enum": false,
+     "is_valuetype": false,
+     "is_interface": false,
+     "is_abstract": false,
+     "is_public": true,
+     "fields": [],
+     "methods": [
+      {
+       "name": "set_timeScale",
+       "token": "0x06009001",
+       "return": "System.Void",
+       "params": [
+        {
+         "name": "value",
+         "type": "System.Single"
+        }
+       ],
+       "param_count": 1,
+       "static": true,
+       "virtual": false,
+       "abstract": false,
+       "public": true,
+       "special": true,
+       "signature": "",
+       "full_name": "",
+       "jit_addr": "0x0"
+      }
+     ],
+     "properties": []
+    }
+   ]
+  }
+ ]
+}
