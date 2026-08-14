@@ -95,10 +95,31 @@ static std::string InstanceMutexName() {
 
 static HANDLE g_unload = nullptr;
 
+// Reads one line from the console. Returns false if there is no readable
+// console input at all (EOF).
+//
+// This mattered a lot: AllocConsole only gave us stdout/stderr, stdin was left
+// unbound, so getchar() returned EOF immediately instead of blocking. The
+// waiter below then "saw an Enter" microseconds after injection and unloaded
+// the payload - the invoker stopped before any command could be picked up.
+static bool ReadEnter() {
+    int c = getchar();
+    if (c == EOF) return false;
+    while (c != '\n' && c != EOF) c = getchar();
+    return true;
+}
+
 static DWORD WINAPI ConsoleWaiter(LPVOID) {
     // Enter in the console means "unload", same as v1.0, but now it goes through
     // the same orderly shutdown path as a tool request.
-    getchar();
+    if (!ReadEnter()) {
+        // No usable stdin: this console cannot ask for an unload. Stay resident
+        // and let the controlling tool signal the unload event instead.
+        mdlog::Printf("[monodump] console has no readable input; "
+                      "unload only via the tool (Enter will not work here)\n");
+        return 0;
+    }
+    mdlog::Printf("[monodump] unload requested from the console\n");
     if (g_unload) SetEvent(g_unload);
     return 0;
 }
@@ -129,6 +150,9 @@ static DWORD WINAPI Worker(LPVOID param) {
         FILE* dummy = nullptr;
         freopen_s(&dummy, "CONOUT$", "w", stdout);
         freopen_s(&dummy, "CONOUT$", "w", stderr);
+        // Without this stdin stays unbound and every getchar() returns EOF at
+        // once, which used to look like "the user pressed Enter immediately".
+        freopen_s(&dummy, "CONIN$", "r", stdin);
         SetConsoleTitleA("monodump");
     } else if (cfg.log_file) {
         // No console: the dumper's own printf output still has to land somewhere.
@@ -149,7 +173,7 @@ static DWORD WINAPI Worker(LPVOID param) {
         mdlog::Printf("           apply. Use Il2CppDumper instead.\n");
         if (cfg.console) {
             mdlog::Printf("\nPress Enter to unload.\n");
-            getchar();
+            ReadEnter();
         }
         ReleaseMutex(once);
         CloseHandle(once);
@@ -227,6 +251,7 @@ static DWORD WINAPI Worker(LPVOID param) {
         if (cfg.console) {
             mdlog::Printf("\n[monodump] payload stays loaded. Press Enter to unload.\n");
             mdlog::Printf("[monodump] do NOT close this console window with the X - that kills the game.\n");
+            mdlog::Printf("[monodump] resident. waiting for commands.\n");
             CreateThread(nullptr, 0, ConsoleWaiter, nullptr, 0, nullptr);
         }
 
@@ -247,7 +272,7 @@ static DWORD WINAPI Worker(LPVOID param) {
         mdlog::WriteReady(module_name, false, false);
         if (cfg.console) {
             mdlog::Printf("\nPress Enter to unload.\n");
-            getchar();
+            ReadEnter();
         }
         mdlog::RemoveReady();
     }
