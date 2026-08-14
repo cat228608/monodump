@@ -6,7 +6,10 @@ struct DumpOptions {
     std::string assembly_filter;    // substring; empty = all assemblies
     std::string name_filter;        // substring on class/field/method names
     bool        compile_methods = false;  // JIT each method to get its address
-    bool        static_values   = true;   // read current values of static fields
+    // OFF by default since 1.1.2: reading a static value forces the class to be
+    // initialised, which runs its cctor - arbitrary managed code - and that is
+    // the single most common way to crash a Unity game while dumping.
+    bool        static_values   = false;  // read current values of static fields
     bool        json            = true;
     bool        text            = true;
     bool        properties      = true;   // dump properties and nested types

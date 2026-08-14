@@ -1,4 +1,5 @@
 #include "dumper.h"
+#include "log.h"
 #include "mono_api.h"
 
 #include <cstdio>
@@ -114,24 +115,43 @@ struct Collector {
 // Reads the current value of a static primitive. This is the part the forum
 // snippet gets wrong: it casts the static data pointer to DWORD, which
 // truncates on x64 and hands you a garbage address. Use uintptr_t.
+struct StaticSlot { uintptr_t addr; char raw[8]; bool ok; };
+
+// mono_class_vtable initialises the class, and initialising a class runs its
+// static constructor - arbitrary managed code - on OUR thread. In a Unity game
+// plenty of cctors touch UnityEngine and take the whole process down. POD-only
+// frame, so a fault costs one field instead of the game.
+static void SehStaticSlot(MonoClass* klass, MonoClassField* field,
+                          uintptr_t offset, StaticSlot* out) {
+    out->addr = 0;
+    out->ok   = false;
+    memset(out->raw, 0, sizeof(out->raw));
+    __try {
+        MonoVTable* vt = mono_class_vtable(mono_get_root_domain(), klass);
+        if (!vt) return;
+        void* base = mono_vtable_get_static_field_data(vt);
+        if (!base) return;
+        out->addr = reinterpret_cast<uintptr_t>(base) + offset;
+        if (mono_field_static_get_value)
+            mono_field_static_get_value(vt, field, out->raw);
+        else
+            memcpy(out->raw, reinterpret_cast<void*>(out->addr), sizeof(out->raw));
+        out->ok = true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        out->ok = false;
+    }
+}
+
 static void ReadStaticField(MonoClass* klass, MonoClassField* field,
                             const std::string& type, FieldInfo& fi) {
     if (!mono_class_vtable || !mono_vtable_get_static_field_data) return;
 
-    MonoVTable* vt = mono_class_vtable(mono_get_root_domain(), klass);
-    if (!vt) return;
+    StaticSlot slot;
+    SehStaticSlot(klass, field, static_cast<uintptr_t>(fi.offset), &slot);
+    if (slot.addr) fi.static_addr = slot.addr;
+    if (!slot.ok) return;
 
-    void* base = mono_vtable_get_static_field_data(vt);
-    if (!base) return;
-
-    fi.static_addr = reinterpret_cast<uintptr_t>(base) + fi.offset;
-
-    char buf[8] = {};
-    if (mono_field_static_get_value) {
-        mono_field_static_get_value(vt, field, buf);
-    } else {
-        memcpy(buf, reinterpret_cast<void*>(fi.static_addr), sizeof(buf));
-    }
+    char* buf = slot.raw;
 
     char rendered[64] = {};
     if      (type == "System.Int32")   sprintf_s(rendered, "%d",   *reinterpret_cast<int32_t*>(buf));
@@ -384,6 +404,17 @@ static void OnAssembly(void* data, void* user) {
         MonoClass* klass = mono_class_get(image, MONO_TOKEN_TYPE_DEF | i);
         if (!klass) continue;
 
+        // Breadcrumb before we touch the class: SEH cannot catch a GC crash, so
+        // when the game dies anyway monodump_last.txt still names the culprit and
+        // you can skip past it with --filter / --assembly.
+        {
+            char crumb[192];
+            const char* nm = mono_class_get_name ? mono_class_get_name(klass) : nullptr;
+            sprintf_s(crumb, "%s : type %d/%d : %s", ai.image_name.c_str(), i, rows,
+                      nm ? nm : "?");
+            mdlog::Crumb(crumb);
+        }
+
         ClassInfo ci;
         if (!SehWalkClass(klass, opts, ci)) {
             ++col->errors;
@@ -549,6 +580,22 @@ static void WriteJson(FILE* f, const std::vector<AssemblyInfo>& asms,
     fprintf(f, "  ]\n}\n");
 }
 
+// Rename tmp -> final, replacing whatever was there. MoveFileEx is atomic on the
+// same volume, which is what makes "the file exists" mean "the file is finished".
+static void PublishFile(const std::string& tmp, const std::string& final_path) {
+    if (MoveFileExA(tmp.c_str(), final_path.c_str(),
+                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+        return;
+
+    // Very unlikely (different volume, AV holding the handle). Fall back to a copy
+    // so the caller still gets its dump, then drop the temp file.
+    if (CopyFileA(tmp.c_str(), final_path.c_str(), FALSE))
+        DeleteFileA(tmp.c_str());
+    else
+        mdlog::Printf("[monodump] could not publish %s (error %lu)\n",
+                      final_path.c_str(), GetLastError());
+}
+
 // ---------------------------------------------------------------------- entry
 
 void RunDump(const DumpOptions& opts) {
@@ -559,7 +606,9 @@ void RunDump(const DumpOptions& opts) {
     std::vector<AssemblyInfo> assemblies;
     Collector col{ &opts, &assemblies, 0 };
 
+    mdlog::Crumb("enumerating assemblies");
     mono_domain_assembly_foreach(mono_get_root_domain(), OnAssembly, &col);
+    mdlog::Crumb("walk finished, writing files");
 
     size_t nclass = 0, nfield = 0, nmethod = 0, nprop = 0;
     for (const auto& a : assemblies) {
@@ -573,22 +622,32 @@ void RunDump(const DumpOptions& opts) {
 
     FILE* f = nullptr;
 
+    // Write to "<name>.tmp" and rename when finished. A reader polling for
+    // dump.json used to see the file the moment it was CREATED, and then either
+    // parsed half of it or hit "used by another process". After a rename the file
+    // exists only when it is complete and no longer held open here.
     if (opts.text) {
         const std::string txt = opts.out_dir + "\\dump.txt";
-        if (fopen_s(&f, txt.c_str(), "w") == 0 && f) {
+        const std::string tmp = txt + ".tmp";
+        if (fopen_s(&f, tmp.c_str(), "w") == 0 && f) {
             fprintf(f, "# monodump: %zu assemblies, %zu classes, %zu fields, %zu props, %zu methods\n",
                     assemblies.size(), nclass, nfield, nprop, nmethod);
             fprintf(f, "# %d classes skipped after faulting during init\n\n", col.errors);
             WriteText(f, assemblies);
             fclose(f);
+            f = nullptr;
+            PublishFile(tmp, txt);
         }
     }
 
     if (opts.json) {
-        const std::string js = opts.out_dir + "\\dump.json";
-        if (fopen_s(&f, js.c_str(), "w") == 0 && f) {
+        const std::string js  = opts.out_dir + "\\dump.json";
+        const std::string tmp = js + ".tmp";
+        if (fopen_s(&f, tmp.c_str(), "w") == 0 && f) {
             WriteJson(f, assemblies, opts, col.errors);
             fclose(f);
+            f = nullptr;
+            PublishFile(tmp, js);
         }
     }
 

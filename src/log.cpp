@@ -12,12 +12,13 @@ static bool            g_console = true;
 static bool            g_file    = true;
 static FILE*           g_log     = nullptr;
 static FILE*           g_result  = nullptr;
+static FILE*           g_crumb   = nullptr;
 static std::string     g_seq;
 static int             g_ok = 0, g_fail = 0;
 static CRITICAL_SECTION g_cs;
 static bool            g_cs_ready = false;
 
-const char* Version() { return "1.1"; }
+const char* Version() { return "1.1.3"; }
 
 static void Lock()   { if (g_cs_ready) EnterCriticalSection(&g_cs); }
 static void Unlock() { if (g_cs_ready) LeaveCriticalSection(&g_cs); }
@@ -47,6 +48,21 @@ void Init(const std::string& dir, bool console, bool file) {
             fflush(g_log);
         }
     }
+
+    // "w": only the last breadcrumb matters, and it must survive a hard crash,
+    // so the handle stays open and every write is flushed.
+    if (g_file && !g_crumb)
+        fopen_s(&g_crumb, (dir + "\\monodump_last.txt").c_str(), "w");
+}
+
+void Crumb(const char* what) {
+    if (!g_crumb || !what) return;
+    Lock();
+    fseek(g_crumb, 0, SEEK_SET);
+    // Padded so leftovers of a longer previous name cannot trail the new one.
+    fprintf(g_crumb, "%-160s\n", what);
+    fflush(g_crumb);
+    Unlock();
 }
 
 void Printf(const char* fmt, ...) {

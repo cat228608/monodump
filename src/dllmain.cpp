@@ -103,6 +103,12 @@ static DWORD WINAPI ConsoleWaiter(LPVOID) {
     return 0;
 }
 
+// The metadata walk as a dispatch job: dispatch::Run takes a plain function
+// pointer and runs it on the game's main thread, so this is just a thin shim.
+static void DumpJob(void* arg) {
+    RunDump(*static_cast<const DumpOptions*>(arg));
+}
+
 static DWORD WINAPI Worker(LPVOID param) {
     auto self = static_cast<HMODULE>(param);
 
@@ -151,6 +157,8 @@ static DWORD WINAPI Worker(LPVOID param) {
     }
 
     mdlog::Printf("[monodump] runtime: %s\n", module_name);
+    mdlog::Printf("[monodump] static values: %s\n",
+                  cfg.dump.static_values ? "ON (--values; can run cctors)" : "off");
     mdlog::Printf("[monodump] %d exports could not be resolved (older runtime = more misses)\n",
                   mono::missing_count());
     mdlog::Printf("[monodump] out=%s assembly=%s filter=%s compile=%d dump=%d console=%d mainthread=%d\n",
@@ -162,7 +170,43 @@ static DWORD WINAPI Worker(LPVOID param) {
 
     if (cfg.run_dump) {
         const DWORD t0 = GetTickCount();
-        RunDump(cfg.dump);
+        bool on_main = false;
+
+        // Since 1.1.2 the metadata walk itself goes through the main thread when
+        // it can. Walking classes calls mono_class_init/mono_class_vtable, which
+        // can run managed code; doing that from our own thread while Unity is
+        // rendering is exactly how the game vanishes mid-dump. The game freezes
+        // for the duration of the walk instead - that is the correct trade.
+        if (cfg.main_thread && dispatch::Available()) {
+            dispatch::IgnoreCurrentThread();
+            if (dispatch::Install()) {
+                for (int i = 0; i < 200 && !dispatch::Ready(); ++i) Sleep(50);
+                if (dispatch::Ready()) {
+                    mdlog::Printf("[monodump] dumping on the game main thread (tid=%lu), "
+                                  "the game will freeze until it finishes\n",
+                                  dispatch::MainThreadId());
+                    // dispatch::Run speaks plain void*, and cfg is const here.
+                    // DumpJob only reads the options back, so dropping const for
+                    // the trip through the queue is safe.
+                    on_main = dispatch::Run(DumpJob,
+                                            const_cast<DumpOptions*>(&cfg.dump),
+                                            900000);
+                    if (!on_main)
+                        mdlog::Printf("[monodump] the main thread never took the job - "
+                                      "is the game paused or minimised?\n");
+                } else {
+                    mdlog::Printf("[monodump] no managed activity seen in 10 s - "
+                                  "load into the world, then dump\n");
+                }
+            }
+        }
+
+        if (!on_main) {
+            mdlog::Printf("[monodump] dumping on our own thread "
+                          "(mainthread=0, no MinHook, or no main thread found)\n");
+            RunDump(cfg.dump);
+        }
+
         mdlog::Printf("[monodump] dump done in %lu ms\n", GetTickCount() - t0);
     } else {
         // A tool that only wants to fire commands pays nothing for metadata it
@@ -194,6 +238,12 @@ static DWORD WINAPI Worker(LPVOID param) {
         mdlog::RemoveReady();
         mdlog::Printf("[monodump] payload unloading\n");
     } else {
+        // --oneshot: the dump is done and we are about to unload. If the dump ran
+        // on the main thread, our trampoline is sitting inside mono_runtime_invoke.
+        // Leaving it there and unloading the DLL means the next managed call jumps
+        // into freed memory. THIS is what killed the game AFTER dump.json was
+        // already written.
+        dispatch::Uninstall();
         mdlog::WriteReady(module_name, false, false);
         if (cfg.console) {
             mdlog::Printf("\nPress Enter to unload.\n");

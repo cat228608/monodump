@@ -34,6 +34,11 @@ void Init(const std::string& dir, bool console, bool file);
 // General progress output. Goes to console + monodump.log.
 void Printf(const char* fmt, ...);
 
+// "What we were doing when the lights went out": rewrites monodump_last.txt in
+// place. If the game dies mid-dump, that one line names the class that did it.
+// Cheap enough to call per class because the handle stays open.
+void Crumb(const char* what);
+
 // Command batch bracketing. seq is whatever the caller put in "#seq <...>".
 void BeginBatch(const std::string& seq);
 void EndBatch();

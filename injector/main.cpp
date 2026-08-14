@@ -162,7 +162,9 @@ static void Usage() {
         "  --filter <substr>    only classes/fields/methods matching this\n"
         "  --out <dir>          output directory (default: next to the dll)\n"
         "  --compile            JIT every method to record its native address (slow)\n"
-        "  --no-values          do not read current static field values\n"
+        "  --values             read current static field values; forces class\n"
+        "                       initialisation and CAN CRASH the game (off by default)\n"
+        "  --no-values          default; metadata only, safest\n"
         "  --no-props           skip properties and nested types (smaller json)\n"
         "  --no-text            json only, skip the human-readable dump.txt\n"
         "  --oneshot            unload after dumping instead of staying resident\n"
@@ -179,7 +181,7 @@ static void Usage() {
 int main(int argc, char** argv) {
     std::string process, dll, out, assembly, filter;
     DWORD pid = 0;
-    bool compile = false, values = true, list = false;
+    bool compile = false, values = false, list = false;
     bool oneshot = false, text = true, props = true;
     bool do_dump = true, console = true, mainthread = true;
 
@@ -193,6 +195,7 @@ int main(int argc, char** argv) {
         else if (a == "--assembly")   assembly = next();
         else if (a == "--filter")     filter   = next();
         else if (a == "--compile")    compile  = true;
+        else if (a == "--values")     values   = true;
         else if (a == "--no-values")  values   = false;
         else if (a == "--list")       list     = true;
         else if (a == "--oneshot")    oneshot  = true;
