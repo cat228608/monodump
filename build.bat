@@ -8,7 +8,6 @@ if errorlevel 1 (
     exit /b 1
 )
 
-
 echo === x64 ===
 cmake -B build64 -A x64 || exit /b 1
 cmake --build build64 --config Release || exit /b 1
@@ -28,4 +27,5 @@ echo     monodump.exe            (x64 injector)
 echo     monodump_payload.dll    (x64 payload)
 echo     monodump32.exe          (x86 injector, renamed from build32)
 echo     monodump_payload32.dll  (x86 payload, renamed from build32)
+
 pause

@@ -18,7 +18,7 @@ static int             g_ok = 0, g_fail = 0;
 static CRITICAL_SECTION g_cs;
 static bool            g_cs_ready = false;
 
-const char* Version() { return "1.1.4"; }
+const char* Version() { return "1.1.8"; }
 
 static void Lock()   { if (g_cs_ready) EnterCriticalSection(&g_cs); }
 static void Unlock() { if (g_cs_ready) LeaveCriticalSection(&g_cs); }

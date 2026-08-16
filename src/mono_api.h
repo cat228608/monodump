@@ -68,6 +68,9 @@ typedef void (*MonoGFunc)(void* data, void* user_data);
     X(void,               mono_thread_detach,               (MonoThread*))           \
     /* assemblies + images */                                                        \
     X(void,               mono_domain_assembly_foreach,     (MonoDomain*, MonoGFunc, void*)) \
+    /* Unity builds since ~2021 drop the domain-taking variant and only ship  */ \
+    /* this one. Same callback shape, iterates every loaded assembly.         */ \
+    X(void,               mono_assembly_foreach,            (MonoGFunc, void*))      \
     X(MonoAssembly*,      mono_domain_assembly_open,        (MonoDomain*, const char*)) \
     X(MonoImage*,         mono_assembly_get_image,          (MonoAssembly*))         \
     X(const char*,        mono_image_get_name,              (MonoImage*))            \
@@ -148,7 +151,32 @@ namespace mono {
 // monobdwgc-2.0.dll, mono-2.0-sgen.dll) and resolves every export above.
 // Returns false if no mono module is present - that usually means the game is
 // IL2CPP, not Mono.
+// Why binding failed. "no mono module" and "no root domain" are worth retrying
+// (Unity may still be starting up); missing exports never fix themselves.
+enum class BindStatus {
+    Ok = 0,
+    NoModule,        // nothing that looks like the mono runtime is loaded
+    MissingExports,  // module is there but does not export what we need
+    NoRootDomain,    // exports fine, runtime not initialised yet
+};
+
+// out_detail receives a human-readable reason (missing export names, the module
+// that was matched, ...). Both out buffers may be null.
+BindStatus initialize_ex(char* out_module_name, size_t out_size,
+                         char* out_detail, size_t detail_size);
+
+// Walks every loaded assembly through whichever export this runtime has:
+// mono_domain_assembly_foreach (older Unity) or mono_assembly_foreach (newer).
+// Returns false only if neither exists.
+bool foreach_assembly(MonoGFunc fn, void* user);
+
 bool initialize(char* out_module_name, size_t out_size);
+
+// Diagnostics for the "no Mono runtime found" case: returns a short list of
+// loaded modules that look runtime-related (mono/unity/player/gameassembly)
+// plus the total module count. Points straight at the real problem, which is
+// usually the wrong process (UnityCrashHandler, a launcher) or IL2CPP.
+const char* modules_summary();
 
 // Number of exports that failed to resolve. Non-fatal: the dumper degrades.
 int missing_count();

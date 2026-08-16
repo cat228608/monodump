@@ -43,6 +43,10 @@ struct PayloadConfig {
     bool        console     = true;   // AllocConsole + printf
     bool        log_file    = true;   // monodump.log
     bool        main_thread = true;   // execute commands on the game's main thread
+    // Unity loads the Mono runtime a moment AFTER the process starts. Injecting
+    // into a game that is still on its splash screen used to fail outright with
+    // "no Mono runtime found"; now we wait for the module to show up.
+    int         wait_runtime = 20;    // seconds to wait for the runtime; 0 = no wait
 };
 
 // The injector drops an options file next to the DLL before injecting, because
@@ -69,11 +73,14 @@ static PayloadConfig LoadOptions(const std::string& dir) {
         else if (k == "json")        cfg.dump.json            = (v == "1");
         else if (k == "text")        cfg.dump.text            = (v == "1");
         else if (k == "properties")  cfg.dump.properties      = (v == "1");
+        else if (k == "generated")   cfg.dump.skip_generated  = (v != "1");
+        else if (k == "skip")        cfg.dump.skip_types      = v;
         else if (k == "interactive") cfg.interactive          = (v == "1");
         else if (k == "dump")        cfg.run_dump             = (v == "1");
         else if (k == "console")     cfg.console              = (v == "1");
         else if (k == "log")         cfg.log_file             = (v == "1");
         else if (k == "mainthread")  cfg.main_thread          = (v == "1");
+        else if (k == "wait")        cfg.wait_runtime         = atoi(v.c_str());
     }
     fclose(f);
     return cfg;
@@ -166,11 +173,43 @@ static DWORD WINAPI Worker(LPVOID param) {
                   mdlog::Version(), (int)(sizeof(void*) * 8), GetCurrentProcessId());
 
     char module_name[MAX_PATH] = {};
-    if (!mono::initialize(module_name, sizeof(module_name))) {
-        mdlog::Printf("[monodump] no Mono runtime found in this process.\n");
-        mdlog::Printf("[monodump] If this is Unity, check <Game>_Data\\il2cpp_data - if that\n");
-        mdlog::Printf("           folder exists the game is IL2CPP and this tool does not\n");
-        mdlog::Printf("           apply. Use Il2CppDumper instead.\n");
+    char detail[512]  = {};
+    mono::BindStatus status = mono::BindStatus::NoModule;
+
+    const int wait_ms = cfg.wait_runtime > 0 ? cfg.wait_runtime * 1000 : 0;
+    for (int waited = 0; ; waited += 250) {
+        status = mono::initialize_ex(module_name, sizeof(module_name),
+                                     detail, sizeof(detail));
+        if (status == mono::BindStatus::Ok) break;
+
+        // Missing exports will still be missing in 20 seconds. Only a not-yet-
+        // loaded module or an uninitialised runtime is worth waiting for.
+        if (status == mono::BindStatus::MissingExports) break;
+        if (waited >= wait_ms) break;
+        if (waited == 0)
+            mdlog::Printf("[monodump] runtime not bound yet (%s), waiting up to %d s...\n",
+                          detail, cfg.wait_runtime);
+        Sleep(250);
+    }
+
+    if (status != mono::BindStatus::Ok) {
+        mdlog::Printf("[monodump] could not bind the Mono runtime: %s\n", detail);
+        mdlog::Printf("[monodump] loaded modules: %s\n", mono::modules_summary());
+
+        if (status == mono::BindStatus::MissingExports) {
+            mdlog::Printf("[monodump] The runtime IS there, so this is not IL2CPP and not the\n");
+            mdlog::Printf("           wrong process. Send the missing-export list above - the\n");
+            mdlog::Printf("           binding table needs a fallback for this Unity build.\n");
+        } else if (status == mono::BindStatus::NoRootDomain) {
+            mdlog::Printf("[monodump] The runtime is loaded but never finished starting. Inject\n");
+            mdlog::Printf("           after the main menu is up, or raise --wait.\n");
+        } else {
+            mdlog::Printf("[monodump] If the list above has no mono*.dll, this is the wrong\n");
+            mdlog::Printf("           process: UnityCrashHandler*.exe and launcher shims look\n");
+            mdlog::Printf("           like the game but never load the runtime. Use --list.\n");
+            mdlog::Printf("[monodump] If you see GameAssembly.dll, the game is IL2CPP and this\n");
+            mdlog::Printf("           tool does not apply. Use Il2CppDumper instead.\n");
+        }
         if (cfg.console) {
             mdlog::Printf("\nPress Enter to unload.\n");
             ReadEnter();
@@ -180,9 +219,13 @@ static DWORD WINAPI Worker(LPVOID param) {
         FreeLibraryAndExitThread(self, 0);
     }
 
-    mdlog::Printf("[monodump] runtime: %s\n", module_name);
+    mdlog::Printf("[monodump] runtime: %s (%s)\n", module_name, detail);
     mdlog::Printf("[monodump] static values: %s\n",
                   cfg.dump.static_values ? "ON (--values; can run cctors)" : "off");
+    mdlog::Printf("[monodump] generated types: %s%s%s\n",
+                  cfg.dump.skip_generated ? "skipped" : "INCLUDED (--include-generated)",
+                  cfg.dump.skip_types.empty() ? "" : ", manual skip: ",
+                  cfg.dump.skip_types.c_str());
     mdlog::Printf("[monodump] %d exports could not be resolved (older runtime = more misses)\n",
                   mono::missing_count());
     mdlog::Printf("[monodump] out=%s assembly=%s filter=%s compile=%d dump=%d console=%d mainthread=%d\n",

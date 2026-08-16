@@ -41,10 +41,16 @@ static std::vector<ProcEntry> Snapshot() {
     return out;
 }
 
-static DWORD FindPid(const std::string& name) {
-    for (const auto& p : Snapshot())
-        if (EqualsNoCase(p.name, name)) return p.pid;
-    return 0;
+// Helper processes that carry the game's name family but never host the runtime.
+// UnityCrashHandler is the classic trap: it is 32-bit even for a 64-bit game, so
+// the injector "succeeds" and the payload then reports no Mono runtime.
+static bool IsHelperProcess(const std::string& name) {
+    std::string n = name;
+    for (auto& c : n) c = (char)tolower(c);
+    return n.find("crashhandler")  != std::string::npos ||
+           n.find("crashreport")   != std::string::npos ||
+           n.find("unitycrash")    != std::string::npos ||
+           n.find("bugsplat")      != std::string::npos;
 }
 
 // A 32-bit injector cannot inject a 64-bit process or vice versa. Catching this
@@ -87,6 +93,25 @@ static bool HasMonoModule(DWORD pid, std::string* found) {
     }
     CloseHandle(snap);
     return result;
+}
+
+// Several processes can share an exe name (game + its own helper, or two copies
+// of the same game). Prefer the one that actually has a mono module loaded; fall
+// back to the first non-helper match.
+static DWORD FindPid(const std::string& name) {
+    DWORD fallback = 0;
+    for (const auto& p : Snapshot()) {
+        if (!EqualsNoCase(p.name, name)) continue;
+        if (IsHelperProcess(p.name)) {
+            printf("[!] '%s' is a crash handler / helper process, not the game.\n",
+                   p.name.c_str());
+            continue;
+        }
+        std::string mod;
+        if (HasMonoModule(p.pid, &mod)) return p.pid;
+        if (!fallback) fallback = p.pid;
+    }
+    return fallback;
 }
 
 static bool Inject(DWORD pid, const std::string& dll) {
@@ -166,6 +191,10 @@ static void Usage() {
         "                       initialisation and CAN CRASH the game (off by default)\n"
         "  --no-values          default; metadata only, safest\n"
         "  --no-props           skip properties and nested types (smaller json)\n"
+        "  --include-generated  also walk <Foo>d__N / <>c compiler types (crash-prone)\n"
+        "  --skip <a,b,c>       skip classes whose name contains any of these\n"
+        "  --wait <sec>         how long the payload waits for the mono runtime\n"
+        "                       to load (default 20; use 0 for the old behaviour)\n"
         "  --no-text            json only, skip the human-readable dump.txt\n"
         "  --oneshot            unload after dumping instead of staying resident\n"
         "  --no-dump            skip the metadata walk, only start the invoker\n"
@@ -182,7 +211,9 @@ int main(int argc, char** argv) {
     std::string process, dll, out, assembly, filter;
     DWORD pid = 0;
     bool compile = false, values = false, list = false;
-    bool oneshot = false, text = true, props = true;
+    bool oneshot = false, text = true, props = true, generated = false;
+    std::string skip;
+    int wait_runtime = 20;
     bool do_dump = true, console = true, mainthread = true;
 
     for (int i = 1; i < argc; ++i) {
@@ -201,6 +232,9 @@ int main(int argc, char** argv) {
         else if (a == "--oneshot")    oneshot  = true;
         else if (a == "--no-text")    text     = false;
         else if (a == "--no-props")   props    = false;
+        else if (a == "--include-generated") generated = true;
+        else if (a == "--skip")       skip     = next();
+        else if (a == "--wait")       wait_runtime = atoi(next().c_str());
         else if (a == "--no-dump")    do_dump  = false;
         else if (a == "--quiet")      console  = false;
         else if (a == "--no-mainthread") mainthread = false;
@@ -229,7 +263,8 @@ int main(int argc, char** argv) {
     if (!HasMonoModule(pid, &mono_module)) {
         printf("[!] no mono module in that process.\n");
         if (!mono_module.empty()) printf("    found instead: %s\n", mono_module.c_str());
-        printf("    Injecting anyway - the payload will re-check.\n");
+        printf("    Injecting anyway - the payload will wait up to %d s for the\n", wait_runtime);
+        printf("    runtime to load, then list the modules it did find.\n");
     } else {
         printf("[+] runtime module: %s\n", mono_module.c_str());
     }
@@ -267,11 +302,14 @@ int main(int argc, char** argv) {
         fprintf(f, "json=1\n");
         fprintf(f, "text=%d\n", text ? 1 : 0);
         fprintf(f, "properties=%d\n", props ? 1 : 0);
+        fprintf(f, "generated=%d\n", generated ? 1 : 0);
+        fprintf(f, "skip=%s\n", skip.c_str());
         fprintf(f, "interactive=%d\n", oneshot ? 0 : 1);
         fprintf(f, "dump=%d\n", do_dump ? 1 : 0);
         fprintf(f, "console=%d\n", console ? 1 : 0);
         fprintf(f, "log=1\n");
         fprintf(f, "mainthread=%d\n", mainthread ? 1 : 0);
+        fprintf(f, "wait=%d\n", wait_runtime);
         fclose(f);
     }
 

@@ -381,6 +381,36 @@ static bool ClassMatches(const ClassInfo& ci, const std::string& f) {
     return false;
 }
 
+// Compiler-generated types always carry angle brackets in their name:
+//   <WaitForSceneSwapClient>d__40   async/iterator state machine
+//   <>c, <>c__DisplayClass3_0       lambda caches
+//   <PrivateImplementationDetails>  static data blob
+// None of them are useful for a trainer and they are the most crash-prone
+// classes in the image, so 1.1.5 skips them unless --include-generated is set.
+static bool IsGeneratedName(const char* name) {
+    if (!name) return false;
+    for (const char* p = name; *p; ++p)
+        if (*p == '<' || *p == '>') return true;
+    return false;
+}
+
+// --skip "Foo,Bar": manual escape hatch when monodump_last.txt names a class
+// that kills the game and it is not a generated one.
+static bool NameInSkipList(const std::string& name, const std::string& list) {
+    if (list.empty()) return false;
+    size_t start = 0;
+    while (start <= list.size()) {
+        size_t comma = list.find(',', start);
+        if (comma == std::string::npos) comma = list.size();
+        std::string item = list.substr(start, comma - start);
+        while (!item.empty() && item.front() == ' ') item.erase(item.begin());
+        while (!item.empty() && item.back()  == ' ') item.pop_back();
+        if (!item.empty() && Contains(name, item)) return true;
+        start = comma + 1;
+    }
+    return false;
+}
+
 // ------------------------------------------------------- assembly enumeration
 
 static void OnAssembly(void* data, void* user) {
@@ -400,18 +430,26 @@ static void OnAssembly(void* data, void* user) {
 
     const int rows = mono_image_get_table_rows(image, MONO_TABLE_TYPEDEF);
     // Row 1 is <Module>, a pseudo-type. Real types start at 2.
+    int skipped = 0;
     for (int i = 2; i <= rows; ++i) {
         MonoClass* klass = mono_class_get(image, MONO_TOKEN_TYPE_DEF | i);
         if (!klass) continue;
 
+        // Name first, decide second: skipping happens before mono_class_init, which
+        // is the call that actually crashes on state machines.
+        const char* nm = mono_class_get_name ? mono_class_get_name(klass) : nullptr;
+        const std::string cname = nm ? nm : "?";
+
+        if (opts.skip_generated && IsGeneratedName(nm)) { ++skipped; continue; }
+        if (NameInSkipList(cname, opts.skip_types))     { ++skipped; continue; }
+
         // Breadcrumb before we touch the class: SEH cannot catch a GC crash, so
         // when the game dies anyway monodump_last.txt still names the culprit and
-        // you can skip past it with --filter / --assembly.
+        // you can skip past it with --skip / --filter / --assembly.
         {
             char crumb[192];
-            const char* nm = mono_class_get_name ? mono_class_get_name(klass) : nullptr;
             sprintf_s(crumb, "%s : type %d/%d : %s", ai.image_name.c_str(), i, rows,
-                      nm ? nm : "?");
+                      cname.c_str());
             mdlog::Crumb(crumb);
         }
 
@@ -424,6 +462,10 @@ static void OnAssembly(void* data, void* user) {
         if (!ClassMatches(ci, opts.name_filter)) continue;
         ai.classes.push_back(std::move(ci));
     }
+
+    if (skipped)
+        mdlog::Printf("[monodump] %s: %d generated/skipped types not walked\n",
+                      ai.image_name.c_str(), skipped);
 
     col->out->push_back(std::move(ai));
 }
@@ -607,7 +649,11 @@ void RunDump(const DumpOptions& opts) {
     Collector col{ &opts, &assemblies, 0 };
 
     mdlog::Crumb("enumerating assemblies");
-    mono_domain_assembly_foreach(mono_get_root_domain(), OnAssembly, &col);
+    if (!mono::foreach_assembly(OnAssembly, &col)) {
+        mdlog::Printf("[monodump] this runtime exports no assembly enumeration "
+                      "function; nothing to dump\n");
+        return;
+    }
     mdlog::Crumb("walk finished, writing files");
 
     size_t nclass = 0, nfield = 0, nmethod = 0, nprop = 0;

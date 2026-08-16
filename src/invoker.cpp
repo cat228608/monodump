@@ -74,7 +74,7 @@ static void FindClassCb(void* data, void* user) {
 static MonoClass* FindClass(const std::string& full_name) {
     ClassSearch s;
     SplitTypeName(full_name, s.ns, s.name);
-    mono_domain_assembly_foreach(mono_get_root_domain(), FindClassCb, &s);
+    mono::foreach_assembly(FindClassCb, &s);
     return s.found;
 }
 
